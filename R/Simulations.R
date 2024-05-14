@@ -1,7 +1,10 @@
 # Two Groups
 library(tidyverse)
 library(furrr)
-source("./simulation_func.R")
+library(progressr)
+library(beepr)
+library(profvis)
+source("./R/simulation_func.R")
 
 two_cells <- expand_grid(
   "N" = c(50, 200, 400, 1000), 
@@ -24,24 +27,31 @@ two_pmats <- expand_grid(
     "PMat" = pmap(list(Pr_MW, Pr_WM), \(mw, wm) make_pmat(c(mw, 0), c(wm, 0), c(0, 0)))
   )
 
-two_sim_runs <- cross_join(two_cells, two_pmats)
+two_sim_runs <- cross_join(two_cells, two_pmats) |>
+  sample_frac(0.01)
 
-plan("multicore")
-two_groups_results <- two_sim_runs |>
-  mutate(
-    "Results" = future_map2(
+run_cell_progress <- function(x, y, p) {
+  p()
+  run_cell(x, y, reps = 2000)
+}
+
+plan("sequential")
+handlers(c("rstudio")) #, handler_beepr(update = 2, finish = 8)))
+vis <- profvis({
+  #p <- progressor(steps = nrow(two_sim_runs))
+  result <- two_sim_runs |>
+    mutate("Result" = future_map2(
       Cell,
       PMat,
-      \(x, y) run_cell(x, y, reps = 2000),
-      .options = furrr_options(seed = 420),
-      .progress = TRUE
+      \(x, y) run_cell(x, y, reps = 2000), #run_cell_progress(x, y, p = p),
+      .options = furrr_options(seed = 420)
     ),
     .keep = "unused"
-  )
+    )
+  result_parsed <- result |>
+    mutate("Result" = map(Result, 1)) |>
+    unnest_wider("Result")
+  saveRDS(result_parsed, "./output/simulation_two_cells.rds")
+})
+vis
 plan("sequential")
-
-two_groups_analysis <- two_groups_results |>
-  mutate("Results" = map(Results, 1)) |>
-  unnest_wider("Results")
-
-saveRDS(two_groups_analysis, "../output/simulation_two_cells.rds")

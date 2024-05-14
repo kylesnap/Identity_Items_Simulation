@@ -1,8 +1,8 @@
 library(tidyverse)
 library(checkmate)
 library(rlang)
-library(dqrng)
-library(RcppEigen)
+library(cpp11)
+cpp_source("./src/simulation.cpp")
 
 #' Create and validate a cell object for simulation
 #'
@@ -112,23 +112,32 @@ miscategorize <- function(X, pmat) {
 #' @param pmat The transition probability matrix.
 #' @return A list containing the actual and observed matrices, Y values, and counts.
 make_data <- function(cell, pmat) {
-  X <- sample.int(3, size = cell$n, replace=TRUE, prob = cell$probs)
-  Z <- make_z(X, cell$delta)
-  mat_act <- matrix(c(rep(1, cell$n), Z, X == 2, X == 3), nrow = cell$n)
+  XV <- make_x_v_cpp(cell$n, cell$probs, pmat[1,], pmat[2,], pmat[3,])
+  Z <- make_z(XV$X, cell$delta)
+  mat_act <- matrix(c(rep(1, cell$n), Z, XV$X == 2, XV$X == 3), nrow = cell$n)
+  mat_obs <- matrix(c(rep(1, cell$n), Z, XV$V == 2, XV$V == 3), nrow = cell$n)
   colnames(mat_act) <- c("INT", "Z", "X_W", "X_X")
-  V <- miscategorize(X, pmat)
-  mat_obs <- matrix(c(rep(1, cell$n), Z, V == 2, V == 3), nrow = cell$n)
   colnames(mat_obs) <- c("INT", "Z", "V_W", "V_X")
   Y <- (mat_act %*% cell$beta) + rnorm(cell$n, sd = sqrt(cell$sigma))
-  list(
-    "actual" = mat_act,
-    "observed" = mat_obs,
-    "Y" = Y,
-    count = list(
-      "X" = X,
-      "V" = V
-    )
-  )
+  models <- fit_models_cpp(mat_act, mat_obs, Y);
+  count <- count_cases_cpp(XV$X, XV$V)
+  # X <- sample.int(3, size = cell$n, replace=TRUE, prob = cell$probs)
+  # Z <- make_z(X, cell$delta)
+  # mat_act <- matrix(c(rep(1, cell$n), Z, X == 2, X == 3), nrow = cell$n)
+  # colnames(mat_act) <- c("INT", "Z", "X_W", "X_X")
+  # V <- miscategorize(X, pmat)
+  # mat_obs <- matrix(c(rep(1, cell$n), Z, V == 2, V == 3), nrow = cell$n)
+  # colnames(mat_obs) <- c("INT", "Z", "V_W", "V_X")
+  # Y <- (mat_act %*% cell$beta) + rnorm(cell$n, sd = sqrt(cell$sigma))
+  # list(
+  #   "actual" = mat_act,
+  #   "observed" = mat_obs,
+  #   "Y" = Y,
+  #   count = list(
+  #     "X" = X,
+  #     "V" = V
+  #   )
+  # )
 }
 
 #' Run linear regression models
@@ -136,6 +145,8 @@ make_data <- function(cell, pmat) {
 #' @param data A list containing actual and observed data matrices and response variable.
 #' @return A list containing coefficients and residual sum of squares for actual and observed models.
 run_models <- function(data) {
+  print(class(data$actual))
+  print(class(data$observed))
   act <- fastLmPure(
     X = data$actual,
     y = data$Y
@@ -175,5 +186,8 @@ run_models <- function(data) {
 #' @param reps The number of repetitions for the cell
 #' @return A list of results from the runs
 run_cell <- function(cell, pmat, reps = 1) {
-  map(c(1:reps), \(i) run_models(make_data(cell, pmat)))
+  map(
+    c(1:reps),
+    \(i) run_models(make_data(cell, pmat))
+  )
 }
