@@ -31,20 +31,16 @@ two_pmats <- expand_grid(
 
 two_sim_runs <- cross_join(two_cells, two_pmats)
 
-handler(c("rstudio", handler_beepr(update = 8L)))
-with_progress({
-  bar <- progressor(nrow(two_sim_runs))
-  result <- two_sim_runs |>
-    mutate("Result" = map2(
-      Cell,
-      PMat,
-      \(x, y, p = bar) {
-        p()
-        run_cell(x, y, 20)
-      },
-      #.options = furrr_options(seed = 420)
-    ),
-    .keep = "unused"
-    )
-  saveRDS(result, "./output/simulation_two_cells.rds")
+result <- two_sim_runs |>
+  mutate("Result" = map2(
+    Cell,
+    PMat,
+    \(x, y, p = bar) {
+      p()
+      run_cell(x, y, 20)
+    },
+  ),
+  .keep = "unused"
+  )
+saveRDS(result, "./output/simulation_two_cells.rds")
 })
