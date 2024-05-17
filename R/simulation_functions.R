@@ -3,6 +3,7 @@ library(checkmate)
 library(rlang)
 library(doRNG)
 library(doParallel)
+library(data.table)
 
 #' Make cell of simulation parameters
 #'
@@ -104,29 +105,21 @@ make_pmat <- function(ep_M, ep_W, ep_X) {
 #'
 #' @return A vector of observations of the Z variable.
 make_z <- function(X, deltas) {
-  from_M <- rnorm(length(X), mean = deltas["D_M"], sd = 1)
-  from_W <- rnorm(length(X), mean = deltas["D_W"], sd = 1)
-  from_X <- rnorm(length(X), mean = deltas["D_X"], sd = 1)
-  from_M * (X == 1) + from_W * (X == 2) + from_X * (X == 3)
+  Z <- numeric(length(X))
+  Z[X == 1] <- rnorm(n = sum(X == 1), mean = deltas["D_M"], sd = 1)
+  Z[X == 2] <- rnorm(n = sum(X == 2), mean = deltas["D_W"], sd = 1)
+  Z[X == 3] <- rnorm(n = sum(X == 3), mean = deltas["D_X"], sd = 1)
+  return(Z)
 }
 
 make_xv <- function(n, probs, pmat) {
   X <- sample.int(3, size = n, replace = TRUE, prob = probs)
-  from_M <- sample.int(3, size = n, replace = TRUE, prob = pmat[1,])
-  from_W <- sample.int(3, size = n, replace = TRUE, prob = pmat[2,])
-  from_X <- sample.int(3, size = n, replace = TRUE, prob = pmat[3,])
-  V <- from_M * (X == 1) + from_W * (X == 2) + from_X * (X == 3)
-  counts <- list(
-    "MM" = sum((X == 1) * (V == 1)),
-    "MW" = sum((X == 1) * (V == 2)),
-    "MX" = sum((X == 1) * (V == 3)),
-    "WM" = sum((X == 2) * (V == 1)),
-    "WW" = sum((X == 2) * (V == 2)),
-    "WX" = sum((X == 2) * (V == 3)),
-    "XM" = sum((X == 3) * (V == 1)),
-    "XW" = sum((X == 3) * (V == 2)),
-    "XX" = sum((X == 3) * (V == 3))
-  )
+  V <- integer(n)
+  V[X == 1] <- sample.int(3, size = sum(X == 1), replace = TRUE, prob = pmat[1,])
+  V[X == 2] <- sample.int(3, size = sum(X == 2), replace = TRUE, prob = pmat[2,])
+  V[X == 3] <- sample.int(3, size = sum(X == 3), replace = TRUE, prob = pmat[3,])
+  
+  counts <- str_flatten(paste0(X, V), collapse = ".")
   list("X" = X, "V" = V, "counts" = counts)
 }
 
@@ -139,9 +132,7 @@ make_xv <- function(n, probs, pmat) {
 #'
 #' @return A list containing the coefficients from the active and observed
 #' linear models and category counts.
-run_rep <- function(cell, pmat) {
-  Y <- rep(0, cell$n)
-  design_mat <- matrix(c(rep(1, cell$n), rep(0, cell$n * 3)), nrow = cell$n)
+run_rep <- function(cell, pmat, design_mat, Y) {
   categories <- make_xv(cell$n, cell$probs, pmat)
   colnames(design_mat) <- c("ACT_INT", "ACT_Z", "ACT_XW", "ACT_XX")
   design_mat[,2] <- make_z(categories$X, cell$delta)
@@ -156,7 +147,7 @@ run_rep <- function(cell, pmat) {
   list2(
     !!!mod_act,
     !!!mod_obs,
-    !!!categories$counts
+    count = categories$counts
   )
 }
 
@@ -168,13 +159,20 @@ run_rep <- function(cell, pmat) {
 #'
 #' @return A list of results from each repetition.
 run_cell <- function(cell, pmat, reps = 1) {
+  Y <- rep(0, cell$n)
+  design_mat <- matrix(c(rep(1, cell$n), rep(0, cell$n * 3)), nrow = cell$n)
   loop <- foreach(
     1:reps,
     .options.RNG = 420
   )
   result <- if (getDoParRegistered()) {
-    loop %dorng% run_rep(cell, pmat)
+    loop %dorng% run_rep(cell, pmat, design_mat, Y)
   } else {
-    loop %do% run_rep(cell, pmat)
+    loop %do% run_rep(cell, pmat, design_mat, Y)
   }
+  map(result, \(x) as_tibble_row(x)) |>
+    list_rbind()
 }
+
+
+# 

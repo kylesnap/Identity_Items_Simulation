@@ -1,7 +1,9 @@
 # Two Groups
 library(tidyverse)
 library(progressr)
+library(profvis)
 library(beepr)
+library(feather)
 source("./R/simulation_functions.R")
 
 two_cells <- expand_grid(
@@ -29,18 +31,26 @@ two_pmats <- expand_grid(
     )
   )
 
-two_sim_runs <- cross_join(two_cells, two_pmats)
+two_sim_runs <- cross_join(two_cells, two_pmats) |> sample_frac(0.01)
 
-result <- two_sim_runs |>
-  mutate("Result" = map2(
-    Cell,
-    PMat,
-    \(x, y, p = bar) {
-      p()
-      run_cell(x, y, 20)
-    },
-  ),
-  .keep = "unused"
-  )
-saveRDS(result, "./output/simulation_two_cells.rds")
+handlers("rstudio")
+profvis({
+with_progress({
+  cl <- makeForkCluster(nnodes = 10)
+  registerDoParallel(cl)
+  p <- progressor(nrow(two_sim_runs))
+  result <- two_sim_runs |>
+    mutate("Result" = map2(
+      Cell,
+      PMat,
+      \(x, y) {
+        p()
+        run_cell(x, y, 100)
+      }
+    ),
+    .keep = "unused"
+    ) |>
+    unnest(Result)
+  write_feather(result, "./output/raw_two_cells.feather")
+}, enable = TRUE, delay_stdout = TRUE, delay_conditions = "condition")
 })
