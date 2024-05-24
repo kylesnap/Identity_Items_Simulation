@@ -1,3 +1,0 @@
-source("/Users/ksnap/Projects/Papers/CPA_24/R/Simulations.R")
-saveRDS(two_groups_analysis, "./simulation_two_cells.rds")
-source("/Users/ksnap/Projects/Papers/CPA_24/R/Simulations.R")
