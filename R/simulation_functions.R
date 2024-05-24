@@ -19,37 +19,72 @@ library(data.table)
 #' @param sigma Standard deviation of the error term.
 #'
 #' @return A list containing the simulation parameters.
-make_cell <- function(n, probs, beta, delta, sigma) {
+make_cell <- function(N,
+                      Pr_W,
+                      Pr_X,
+                      Beta_Int = 0,
+                      Beta_Z = 0,
+                      Beta_XW = 0,
+                      Beta_XX = 0,
+                      Delta_W = 0,
+                      Delta_X = 0,
+                      Sigma_E = 1) {
   assert_numeric(
-    probs,
+    Pr_W,
     lower = 0,
     upper = 1,
-    len = 2,
+    len = 1,
     any.missing = FALSE
   )
-  assert_numeric(beta, len = 4)
+  assert_numeric(
+    Pr_X,
+    lower = 0,
+    upper = 1,
+    len = 1,
+    any.missing = FALSE
+  )
+  assert(Pr_W + Pr_X <= 1)
+  
+  delta <- c(Delta_W, Delta_X)
   assert_numeric(delta, len = 2)
-  assert(probs[1] + probs[2] <= 1)
+  
+  assert_number(Sigma_E, lower = .Machine$double.xmin)
   list(
-    "n" = assert_count(n),
+    "n" = assert_count(N),
     "probs" = c(
-      "Pr_M" = 1 - probs[1] - probs[2],
-      "Pr_W" = probs[1],
-      "Pr_X" = probs[2]
+      "Pr_M" = 1 - Pr_W - Pr_X,
+      "Pr_W" = Pr_W,
+      "Pr_X" = Pr_X
     ),
     "beta" = c(
-      "int" = beta[1],
-      "Z" = beta[2],
-      "XW" = beta[3],
-      "XX" = beta[4]
+      "Int" = Beta_Int,
+      "Z" = Beta_Z,
+      "XW" = Beta_XW,
+      "XX" = Beta_XX
     ),
     "delta" = c(
-      "D_M" = -(delta[1] * probs[1] + delta[2] * probs[2]) / 
-        (1 - probs[1] - probs[2]),
-      "D_W" = delta[1],
-      "D_X" = delta[2]
+      "D_M" = -(Delta_W * Pr_W + Delta_X * Pr_X) / (1 - Pr_W - Pr_X),
+      "D_W" = Delta_W,
+      "D_X" = Delta_X
     ),
-    "sigma" = assert_number(sigma, lower = .Machine$double.xmin)
+    "sigma" = Sigma_E
+  )
+}
+
+cell_as_row <- function(cell) {
+  list(
+    N = cell$n,
+    Pr_M = cell$probs["Pr_M"],
+    Pr_W = cell$probs["Pr_W"],
+    Pr_X = cell$probs["Pr_X"],
+    Beta_Int = cell$beta["Int"],
+    Beta_Z = cell$beta["Z"],
+    Beta_XW = cell$beta["XW"],
+    Beta_XX = cell$beta["XX"],
+    D_M = cell$delta["D_M"],
+    D_W = cell$delta["D_W"],
+    D_X = cell$delta["D_X"],
+    Sigma_E = cell$sigma
   )
 }
 
@@ -63,39 +98,45 @@ make_cell <- function(n, probs, beta, delta, sigma) {
 #' probabilities for state X.
 #'
 #' @return A transition matrix.
-make_pmat <- function(ep_M, ep_W, ep_X) {
+make_pmat <- function(row_M, row_W, row_X) {
   assert_numeric(
-    ep_M,
+    row_M,
     lower = 0,
     upper = 1,
-    len = 2,
+    len = 3,
     any.missing = FALSE
   )
   assert_numeric(
-    ep_W,
+    row_W,
     lower = 0,
     upper = 1,
-    len = 2,
+    len = 3,
     any.missing = FALSE
   )
   assert_numeric(
-    ep_X,
+    row_X,
     lower = 0,
     upper = 1,
-    len = 2,
+    len = 3,
     any.missing = FALSE
   )
-  assert(sum(ep_M) <= 1)
-  assert(sum(ep_W) <= 1)
-  assert(sum(ep_X) <= 1)
+  assert(sum(row_M) == 1)
+  assert(sum(row_W) == 1)
+  assert(sum(row_X) == 1)
   matrix(
-    c(1 - sum(ep_M),  ep_M[1], ep_M[2],
-      ep_W[1], 1 - sum(ep_W), ep_W[2],
-      ep_X[1], ep_X[2], 1 - sum(ep_X)
-    ),
+    c(row_M, row_W, row_X),
     nrow = 3,
-    byrow = TRUE
+    byrow = TRUE,
+    dimnames = list(c("X=M","X=W","X=X"), c("V=M","V=W","V=X"))
   )
+}
+
+pmat_as_row <- function(pmat) {
+  res <- c(t(pmat))
+  names(res) <- c("Pr_MM", "Pr_MW", "Pr_MX",
+                  "Pr_WM", "Pr_WW", "Pr_WX",
+                  "Pr_XM", "Pr_XW", "Pr_XX")
+  res
 }
 
 #' Generate observations of the Z variable, conditional on X
@@ -119,8 +160,12 @@ make_xv <- function(n, probs, pmat) {
   V[X == 2] <- sample.int(3, size = sum(X == 2), replace = TRUE, prob = pmat[2,])
   V[X == 3] <- sample.int(3, size = sum(X == 3), replace = TRUE, prob = pmat[3,])
   
-  counts <- str_flatten(paste0(X, V), collapse = ".")
-  list("X" = X, "V" = V, "counts" = counts)
+  index <- (X - 1) * 3 + V
+  tabs <- tabulate(index, nbins = 9)
+  names(tabs) <- c("MM", "MW", "MX",
+                   "WM", "WW", "WX",
+                   "XM", "XW", "XX")
+  list("X" = X, "V" = V, "counts" = tabs)
 }
 
 #' Run a single repetition of a cell 
@@ -132,7 +177,7 @@ make_xv <- function(n, probs, pmat) {
 #'
 #' @return A list containing the coefficients from the active and observed
 #' linear models and category counts.
-run_rep <- function(cell, pmat, design_mat, Y) {
+run_rep <- function(cell, pmat, design_mat, Y, verbose = FALSE) {
   categories <- make_xv(cell$n, cell$probs, pmat)
   colnames(design_mat) <- c("ACT_INT", "ACT_Z", "ACT_XW", "ACT_XX")
   design_mat[,2] <- make_z(categories$X, cell$delta)
@@ -140,14 +185,16 @@ run_rep <- function(cell, pmat, design_mat, Y) {
   design_mat[,4] <- categories$X == 3
   Y <- (design_mat %*% cell$beta) + rnorm(cell$n, sd = cell$sigma)
   mod_act <- lm.fit(design_mat, Y)$coefficients
+  if (verbose) print(summary(design_mat))
   colnames(design_mat) <- c("OBS_INT", "OBS_Z", "OBS_XW", "OBS_XX")
   design_mat[,3] <- categories$V == 2
   design_mat[,4] <- categories$V == 3
   mod_obs <- lm.fit(design_mat, Y)$coefficients
+  if (verbose) print(summary(design_mat))
   list2(
     !!!mod_act,
     !!!mod_obs,
-    count = categories$counts
+    !!!categories$counts
   )
 }
 
@@ -158,7 +205,7 @@ run_rep <- function(cell, pmat, design_mat, Y) {
 #' @param reps Number of repetitions to run.
 #'
 #' @return A list of results from each repetition.
-run_cell <- function(cell, pmat, reps = 1) {
+run_cell <- function(cell, pmat, reps = 1, verbose = FALSE) {
   Y <- rep(0, cell$n)
   design_mat <- matrix(c(rep(1, cell$n), rep(0, cell$n * 3)), nrow = cell$n)
   loop <- foreach(
@@ -166,9 +213,9 @@ run_cell <- function(cell, pmat, reps = 1) {
     .options.RNG = 420
   )
   result <- if (getDoParRegistered()) {
-    loop %dorng% run_rep(cell, pmat, design_mat, Y)
+    loop %dorng% run_rep(cell, pmat, design_mat, Y, verbose)
   } else {
-    loop %do% run_rep(cell, pmat, design_mat, Y)
+    loop %do% run_rep(cell, pmat, design_mat, Y, verbose)
   }
   map(result, \(x) as_tibble_row(x)) |>
     list_rbind()

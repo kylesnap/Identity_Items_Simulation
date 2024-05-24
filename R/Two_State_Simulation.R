@@ -3,7 +3,7 @@ library(tidyverse)
 library(progressr)
 library(profvis)
 library(beepr)
-library(feather)
+library(arrow)
 source("./R/simulation_functions.R")
 
 two_cells <- expand_grid(
@@ -31,10 +31,9 @@ two_pmats <- expand_grid(
     )
   )
 
-two_sim_runs <- cross_join(two_cells, two_pmats) |> sample_frac(0.01)
+two_sim_runs <- cross_join(two_cells, two_pmats)
 
-handlers("rstudio")
-profvis({
+handlers("debug")
 with_progress({
   cl <- makeForkCluster(nnodes = 10)
   registerDoParallel(cl)
@@ -45,12 +44,11 @@ with_progress({
       PMat,
       \(x, y) {
         p()
-        run_cell(x, y, 100)
+        run_cell(x, y, 500)
       }
     ),
     .keep = "unused"
     ) |>
     unnest(Result)
-  write_feather(result, "./output/raw_two_cells.feather")
+  write_parquet(result, "./output/raw_two_cells.parquet")
 }, enable = TRUE, delay_stdout = TRUE, delay_conditions = "condition")
-})

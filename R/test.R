@@ -2,25 +2,11 @@ library(profvis)
 source("./R/simulation_functions.R")
 # Test
 
-cell <- make_cell(
-    n = 1000,
-    probs = c(0., 0.5),
-    beta = c(0, 1, 1, 2),
-    delta = c(0, 0),
-    sigma = 1
-  )
+cell1 <- make_cell(1000, 0.2, 0.3)
 
-pmat <- make_pmat(ep_M = c(0, 0), ep_W = c(0.0, 0.0), ep_X = c(0, 0))
+row_M <- c(0.2, 0.5, 0.3)
+row_W <- c(0.1, 0.6, 0.3)
+row_X <- c(0.3, 0.4, 0.3)
+pmat1 <- make_pmat(row_M, row_W, row_X)
 
-result <- run_cell(cell, pmat, reps = 20)
-#})
-result_table <- lapply(result, \(x) as_tibble(x)) |>
-  list_rbind()
-
-cl <- makePSOCKcluster(5)
-clusterCall(cl, function() { source("./R/simulation_functions.R") })
-registerDoParallel(cl)
-profvis({
-  result <- run_cell(cell, pmat, reps = 2000)
-})
-stopCluster(cl)
+result <- run_cell(cell1, pmat1, reps = 1, verbose = TRUE)
