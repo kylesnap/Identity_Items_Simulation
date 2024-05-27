@@ -3,52 +3,52 @@ library(arrow)
 library(rgl)
 library(viridis)
 
-balanced <- open_dataset("./output/balanced_2024-05-24")
+balanced <- open_dataset("./output/balanced")
+balanced$schema
 
 computed <- balanced |>
   mutate(
-    AF_INT = OBS_INT / ACT_INT,
-    AF_Z = OBS_Z / ACT_Z,
-    AF_XW = OBS_XW / ACT_XW,
-    AF_XX = OBS_XX / ACT_XX
+    "PRECISION_M" = MM / (MM + WM + XM),
+    "PRECISION_W" = WW / (WW + MW + XW),
+    "RECALL_X" = XX / (XX + XM + XW),
+    "DIF_INT" = OBS_INT - ACT_INT,
+    "DIF_Z" = OBS_Z - ACT_Z,
+    "DIF_XW" = OBS_XW - ACT_XW,
+    "DIF_XX" = OBS_XX - ACT_XX
+  )
+
+count_na <- \(x) sum(is.na(x))
+balanced_summary <- computed |>
+  mutate(
+    "R_PRECISION_M" = round(PRECISION_M/0.05) * 0.05,
+    "R_PRECISION_W" = round(PRECISION_W/0.05) * 0.05,
   ) |>
-  select(N, Pr_M, Pr_W, Pr_X, Pr_XM, Pr_XW, Pr_XX, D_M, D_W, D_X, Sigma_E, AF_INT:AF_XX)
-
-rec_prec <- computed |>
-  collect()
-
-simple_trials <- rec_prec |>
-  filter(N == 1000, Delta_X == 0, Delta_W == 0, Sigma == 1) |>
-  group_by(Pr_X, Precision_M, Precision_W) |>
+  group_by(Pr_X, D_W, D_X, R_PRECISION_M, R_PRECISION_W) |>
   summarise(
-    AF_INT = mean(AF_INT, na.rm = TRUE),
-    NA_INT = sum(is.na(AF_INT)),
-    AF_XW = mean(AF_XW, na.rm = TRUE),
-    NA_XW = sum(is.na(AF_XW)),
-    AF_XX = mean(AF_XX, na.rm = TRUE),
-    NA_XX = sum(is.na(AF_XX)),
+    across(
+      DIF_INT:DIF_XX, 
+      list(mean, sd, ~ sum(is.na(.)) / n()),
+      .names = "{.col}_{.fn}"
+    ),
     .groups = "drop"
   ) |>
   collect() |>
+  rename_with(
+    \(x) str_replace_all(x, c("1$" = "M", "2$" = "SD", "3$" = "FPROP")),
+    .cols = DIF_INT_1:DIF_XX_3
+  )
+                                
   mutate(
-    NA_INT = case_when(
-      NA_INT == 500 ~ "All",
-      NA_INT > 0 ~ "Some",
-      NA_INT == 0 ~ "None"
-    ),
-    NA_XW = case_when(
-      NA_XW == 500 ~ "All",
-      NA_XW > 0 ~ "Some",
-      NA_XW == 0 ~ "None"
-    ),
-    NA_XX = case_when(
-      NA_XX == 500 ~ "All",
-      NA_XX > 0 ~ "Some",
-      NA_XX == 0 ~ "None"
+    FAILED_XX = FAILED_XX / TOTAL_MOD,
+    "Failure_Prop" = case_when(
+      FAILED_XX == 1 ~ "All",
+      FAILED_XX > 0.5 ~ "Over_Fifty",
+      FAILED_XX > 0 ~ "Under_Fifty",
+      FAILED_XX == 0 ~ "None"
     )
   )
 
-ggplot(simple_trials, aes(x = Precision_M, y = Precision_W, colour = AF_XX, shape = NA_XX)) +
+ggplot(balanced_summary, aes(x = SPE_M_R, y = SPE_W_R, colour = DIF_XX)) +
   geom_point(size = 2) +
   scale_x_reverse("Precision (M)") +
   scale_y_continuous("Precision (W)") +
@@ -64,7 +64,7 @@ ggplot(simple_trials, aes(x = Precision_M, y = Precision_W, colour = AF_XX, shap
   theme_light() +
   facet_grid(cols = vars(Pr_X), labeller = as_labeller(\(x) paste("Pr(X) =", x)))
 
-ggplot(simple_trials, aes(x = Precision_M, y = Precision_W, colour = AF_XX, shape = NA_XW)) +
+ggplot(simple_trials, aes(x = Precision_M, y = Precision_W, colour = DIF_XX, shape = NA_XW)) +
   geom_point(size = 2) +
   scale_x_reverse("Precision (M)") +
   scale_y_continuous("Precision (W)") +

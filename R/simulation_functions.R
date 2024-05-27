@@ -71,23 +71,6 @@ make_cell <- function(N,
   )
 }
 
-cell_as_row <- function(cell) {
-  list(
-    N = cell$n,
-    Pr_M = cell$probs["Pr_M"],
-    Pr_W = cell$probs["Pr_W"],
-    Pr_X = cell$probs["Pr_X"],
-    Beta_Int = cell$beta["Int"],
-    Beta_Z = cell$beta["Z"],
-    Beta_XW = cell$beta["XW"],
-    Beta_XX = cell$beta["XX"],
-    D_M = cell$delta["D_M"],
-    D_W = cell$delta["D_W"],
-    D_X = cell$delta["D_X"],
-    Sigma_E = cell$sigma
-  )
-}
-
 #' Make a transition matrix for respondents
 #'
 #' @param ep_M A numeric vector of length 2 representing the transition
@@ -129,14 +112,6 @@ make_pmat <- function(row_M, row_W, row_X) {
     byrow = TRUE,
     dimnames = list(c("X=M","X=W","X=X"), c("V=M","V=W","V=X"))
   )
-}
-
-pmat_as_row <- function(pmat) {
-  res <- c(t(pmat))
-  names(res) <- c("Pr_MM", "Pr_MW", "Pr_MX",
-                  "Pr_WM", "Pr_WW", "Pr_WX",
-                  "Pr_XM", "Pr_XW", "Pr_XX")
-  res
 }
 
 #' Generate observations of the Z variable, conditional on X

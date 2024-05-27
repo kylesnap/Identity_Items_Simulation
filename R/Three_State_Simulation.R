@@ -4,7 +4,7 @@ library(progressr)
 library(arrow)
 source("./R/simulation_functions.R")
 
-three_cells <- expand_grid(
+balanced_cells <- expand_grid(
   "Pr_X" = c(0.1, 0.2, 0.3),
   "Delta_W" = c(0, 0.5, 0.8),
   "Delta_X" = c(0, 0.5, 0.8),
@@ -24,7 +24,7 @@ three_cells <- expand_grid(
     .keep = "none"
   )
 
-three_pmats <- expand_grid(
+balanced_pmats <- expand_grid(
   "Pr_XM" = seq(0, 1, 0.05),
   "Pr_XW" = seq(0, 1, 0.05)
 ) |>
@@ -42,12 +42,21 @@ three_pmats <- expand_grid(
     .keep = "none"
   )
 
-three_sim_runs <- cross_join(three_cells, three_pmats) |>
+three_sim_runs <- cross_join(balanced_cells, balanced_pmats) |>
   mutate(
-    Cell_Params = map(Cell, \(x) cell_as_row(x)),
-    PMat_Params = map(PMat, \(x) pmat_as_row(x))
-  ) |>
-  unnest_wider(Cell_Params:PMat_Params)
+    N = map_int(Cell, "n"),
+    Pr_M = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_M")),
+    Pr_W = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_W")),
+    Pr_X = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_X")),
+    Beta_Int = map_dbl(Cell, \(x) pluck(x, "beta", "Int")),
+    Beta_Z = map_dbl(Cell, \(x) pluck(x, "beta", "Z")),
+    Beta_XW = map_dbl(Cell, \(x) pluck(x, "beta", "XW")),
+    Beta_XX = map_dbl(Cell, \(x) pluck(x, "beta", "XX")),
+    D_M = map_dbl(Cell, \(x) pluck(x, "delta", "D_M")),
+    D_W = map_dbl(Cell, \(x) pluck(x, "delta", "D_W")),
+    D_X = map_dbl(Cell, \(x) pluck(x, "delta", "D_X")),
+    Sigma_E = map_dbl(Cell, "sigma")
+  )
 
 handlers("pbcol")
 with_progress({
@@ -67,9 +76,8 @@ with_progress({
     .after = everything()
     ) |>
     unnest(Result)
-  write_dataset(
-    result,
-    path = paste0("./output/balanced_", Sys.Date()),
-    partitioning = c("Pr_X", "D_W", "D_X")
-  )
+  print(sapply(result, function(x) length(names(x))))
+  result |>
+    group_by(Pr_X) |>
+    write_dataset(path = "./output/balanced")
 }, enable = TRUE, delay_stdout = TRUE, delay_conditions = "condition")
