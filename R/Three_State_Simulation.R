@@ -12,14 +12,14 @@ balanced_cells <- expand_grid(
   mutate(
     "Cell" = pmap(list(Pr_X, Delta_W, Delta_X), 
          \(prx, dw, dx) make_cell(
-      N = 1000, 
-      Pr_W = round((1 - prx)/2, 2),
-      Pr_X = prx, 
-      Beta_Z = 1, 
-      Beta_XW = 1,
-      Beta_XX = -1,
-      Delta_W = dw,
-      Delta_X = dx
+      sample_size = 1000, 
+      probabilities = c(
+        "M" = (1 - prx)/2, 
+        "W" = (1 - prx)/2, 
+        "X" = prx
+      ),
+      true_beta = c(Int = 0, Z = 1, XW = 1, XX = -1),
+      deltas = c(W = dw, X = dx),
     )),
     .keep = "none"
   )
@@ -34,9 +34,9 @@ balanced_pmats <- expand_grid(
       Pr_XM,
       Pr_XW,
       \(xm, xw) make_pmat(
-        row_M = c(1, 0, 0), 
-        row_W = c(0, 1, 0),
-        row_X = c(xm, xw, 1 - (xm + xw))
+        row_m = c(1, 0, 0), 
+        row_w = c(0, 1, 0),
+        row_x = c(xm, xw, 1 - (xm + xw))
       )
     ),
     .keep = "none"
@@ -44,18 +44,18 @@ balanced_pmats <- expand_grid(
 
 three_sim_runs <- cross_join(balanced_cells, balanced_pmats) |>
   mutate(
-    N = map_int(Cell, "n"),
-    Pr_M = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_M")),
-    Pr_W = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_W")),
-    Pr_X = map_dbl(Cell, \(x) pluck(x, "probs", "Pr_X")),
-    Beta_Int = map_dbl(Cell, \(x) pluck(x, "beta", "Int")),
-    Beta_Z = map_dbl(Cell, \(x) pluck(x, "beta", "Z")),
-    Beta_XW = map_dbl(Cell, \(x) pluck(x, "beta", "XW")),
-    Beta_XX = map_dbl(Cell, \(x) pluck(x, "beta", "XX")),
-    D_M = map_dbl(Cell, \(x) pluck(x, "delta", "D_M")),
-    D_W = map_dbl(Cell, \(x) pluck(x, "delta", "D_W")),
-    D_X = map_dbl(Cell, \(x) pluck(x, "delta", "D_X")),
-    Sigma_E = map_dbl(Cell, "sigma")
+    N = map_int(Cell, "sample_size"),
+    Pr_M = map_dbl(Cell, "Pr_M"),
+    Pr_W = map_dbl(Cell, "Pr_W"),
+    Pr_X = map_dbl(Cell, "Pr_X"),
+    Beta_Int = map_dbl(Cell, "B_Int"),
+    Beta_Z = map_dbl(Cell, "B_Z"),
+    Beta_XW = map_dbl(Cell, "B_XW"),
+    Beta_XX = map_dbl(Cell, "B_XX"),
+    D_M = map_dbl(Cell, "D_M"),
+    D_W = map_dbl(Cell, "D_W"),
+    D_X = map_dbl(Cell, "D_X"),
+    Sigma = map_dbl(Cell, "sigma")
   )
 
 handlers("pbcol")
@@ -69,14 +69,13 @@ with_progress({
       PMat,
       \(x, y) {
         p()
-        run_cell(x, y, 1000)
+        run_cell(cell = x, p_mat = y, reps = 1000)
       }
     ),
     .keep = "unused",
     .after = everything()
     ) |>
     unnest(Result)
-  print(sapply(result, function(x) length(names(x))))
   result |>
     group_by(Pr_X) |>
     write_dataset(path = "./output/balanced")
