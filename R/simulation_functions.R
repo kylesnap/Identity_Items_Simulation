@@ -3,7 +3,6 @@ library(checkmate)
 library(rlang)
 library(doRNG)
 library(doParallel)
-library(data.table)
 
 #' Make cell of simulation parameters
 #'
@@ -20,53 +19,52 @@ library(data.table)
 #'
 #' @return A list containing the simulation parameters.
 make_cell <- function(N,
-                      Pr_W,
-                      Pr_X,
-                      Beta_Int = 0,
-                      Beta_Z = 0,
-                      Beta_XW = 0,
-                      Beta_XX = 0,
-                      Delta_W = 0,
-                      Delta_X = 0,
-                      Sigma_E = 1) {
+                      probs,
+                      betas = c("Int" = 0, "Z" = 0, "XW" = 0, "XX" = 0),
+                      deltas = c("W" = 0, "X" = 0), 
+                      Sigma_E = 1
+                      ) {
   assert_numeric(
-    Pr_W,
+    probs,
     lower = 0,
     upper = 1,
-    len = 1,
-    any.missing = FALSE
+    len = 3,
+    any.missing = FALSE,
+    names = "named"
   )
+  assert(sum(probs) == 1)
+  probs <- set_names(probs, \(x) paste0("Pr_", x))
+  
   assert_numeric(
-    Pr_X,
+    betas,
     lower = 0,
     upper = 1,
-    len = 1,
-    any.missing = FALSE
+    len = 4,
+    any.missing = FALSE,
+    names = "named"
   )
-  assert(Pr_W + Pr_X <= 1)
+  betas <- set_names(betas, \(x) paste0("B_", x))
   
-  delta <- c(Delta_W, Delta_X)
-  assert_numeric(delta, len = 2)
+  assert_numeric(
+    deltas,
+    lower = 0,
+    upper = 1,
+    len = 2,
+    any.missing = FALSE,
+    names = "named"
+  )
+  deltas <- set_names(deltas, \(x) paste0("D_", x))
   
+  assert_count(N)
   assert_number(Sigma_E, lower = .Machine$double.xmin)
-  list(
+  
+  dm <- (-(deltas["D_W"] * probs["Pr_W"] + deltas["D_X"] * probs["Pr_X"]) / (1 - probs["Pr_W"] - probs["Pr_X"]))[[1]]
+  list2(
     "n" = assert_count(N),
-    "probs" = c(
-      "Pr_M" = 1 - Pr_W - Pr_X,
-      "Pr_W" = Pr_W,
-      "Pr_X" = Pr_X
-    ),
-    "beta" = c(
-      "Int" = Beta_Int,
-      "Z" = Beta_Z,
-      "XW" = Beta_XW,
-      "XX" = Beta_XX
-    ),
-    "delta" = c(
-      "D_M" = -(Delta_W * Pr_W + Delta_X * Pr_X) / (1 - Pr_W - Pr_X),
-      "D_W" = Delta_W,
-      "D_X" = Delta_X
-    ),
+    !!!probs,
+    !!!betas,
+    "D_M" = dm,
+    !!!deltas,
     "sigma" = Sigma_E
   )
 }

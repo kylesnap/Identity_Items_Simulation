@@ -2,7 +2,10 @@ library(profvis)
 source("./R/simulation_functions.R")
 # Test
 
-cell1 <- make_cell(1000, 0.2, 0.3)
+cell1 <- make_cell(
+  N = 100,
+  probs = c("M" = 0.5, "W" = 0.3, "X" = 0.2)
+)
 
 row_M <- c(0.2, 0.5, 0.3)
 row_W <- c(0.1, 0.6, 0.3)
