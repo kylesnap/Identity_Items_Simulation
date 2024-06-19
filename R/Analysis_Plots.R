@@ -1,8 +1,6 @@
 library(plyr)
 library(tidyverse)
 library(arrow)
-library(rgl)
-library(viridis)
 library(showtext)
 library(akima)
 
@@ -15,9 +13,14 @@ balanced <- open_dataset("./output/balanced")
 balanced$schema
 
 computed <- balanced |>
-  ungroup() |>
   mutate(
-c
+    Pr_X, D_W, D_X,
+    Pr_XM = XM / (XM + XW + XX),
+    Pr_XW = XW / (XM + XW + XX),
+    Bias_Int = OBS_INT - ACT_INT,
+    Bias_Z = OBS_Z - ACT_Z,
+    Bias_XW = OBS_XW - ACT_XW,
+    Bias_XX = OBS_XX - ACT_XX,
   ) |>
   mutate(
     across(
@@ -25,7 +28,8 @@ c
       ~ round(. / 0.05) * 0.05, 
       .names = "Bin_{.col}"
     )
-  )
+  ) |>
+  collect()
 
 summarised <- computed |>
   group_by(Pr_X, D_W, D_X, Bin_Pr_XM, Bin_Pr_XW) |>
@@ -54,17 +58,18 @@ summarised <- computed |>
 
 ## Gridding data to plots ----
 
-make_grid <- function(x, y, z, name, n = 100) {
-  #domain <- seq(0.50, 1, by = interval)
-  #range <- seq(0.50, 1, by = interval)
-  res <- interp(x, y, z, nx = n, ny = n) |>
+make_grid <- function(x, y, z, name, n = 500) {
+  res <- interp(
+    x, y, z, 
+    nx = n, ny = n,
+    duplicate = "mean"
+  ) |>
     interp2xyz(data.frame = TRUE)
   names(res) <- c("Precis_M", "Precis_W", name)
   res
 }
 
 gridded <- summarised |>
-  ungroup() |>
   group_by(Pr_X, D_W, D_X) |>
   select(Precis_M, Precis_W, M_Bias_Z, M_Bias_XW, M_Bias_XX) |>
   nest(
@@ -78,11 +83,11 @@ gridded <- summarised |>
       \(x) make_grid(x$Precis_M, x$Precis_W, x$M_Bias_Z, "Bias_Z")
     ),
     "Interp_XW" = map(
-      Raw_XW, 
+      Raw_XW,
       \(x) make_grid(x$Precis_M, x$Precis_W, x$M_Bias_XW, "Bias_XW")
     ),
     "Interp_XX" = map(
-      Raw_XX, 
+      Raw_XX,
       \(x) make_grid(x$Precis_M, x$Precis_W, x$M_Bias_XX, "Bias_XX")
     ),
     .keep = "unused",
@@ -136,70 +141,43 @@ bias_palette <- function(name, ...) {
     mid = "#EAECCC",
     high = "#A50026",
     midpoint = 0,
-    na.value = "#FFFFFF",
-    ...
+    breaks = seq(-1, 1, 0.1)
   )
 }
 
-ggplot(base_df, aes(x = Precis_M, y = Precis_W)) +
-  geom_tile(aes(fill = Bias_XX, width = 0.01, height = 0.01)) +
-  geom_point(data = base_count, size = 2, aes(x = Precis_M, y = Precis_W, shape = Prop_XX)) +
+ggplot(base_df, aes(x = Precis_M, y = Precis_W, fill = Bias_XX)) +
+  geom_tile() +
   bias_palette(expression(paste('Bias ', beta["x|m"]))) +
-  scale_x_reverse("Precision (M)") +
-  scale_y_continuous("Precision (W)") +
-  scale_shape_manual(
-    "Cell Outcome",
-    breaks = c("Success", "Partial", "Fail"),
-    labels = c("Success", "<5% Failures", ">5% Failures"),
-    values = c(4, 13, 1)
-  ) +
-  labs(
-    title = "Bias in X v. M regression parameter across item precision",
-    caption = "Prop. X = 0.3; Cov(X, Z) = Cov(W, Z) = 0"
-  ) +
-  theme_linedraw(base_family = "Open Sans", base_size = 18) -> bias_xx_plot
+  scale_x_continuous("Precision (M)", limits = c(0.55, 1)) +
+  scale_y_continuous("Precision (W)", limits = c(0.55, 1)) +
+  annotate(
+    "label",
+    x = 0.55,
+    y = 0.55,
+    hjust = "left",
+    fill = "#dadde8",
+    label = "Prop. X = 0.3; Cov(X, Z) = Cov(W, Z) = 0"
+  ) -> bias_xx_plot
 
-ggplot(base_df, aes(x = Precis_M, y = Precis_W)) +
-  geom_tile(aes(fill = Bias_XW, width = 0.01, height = 0.01)) +
-  geom_point(data = base_count, size = 2, aes(x = Precis_M, y = Precis_W, shape = Prop_XW)) +
-  bias_palette(expression(paste('Bias ', beta["w|m"]))) +
-  scale_x_reverse("Precision (M)") +
-  scale_y_continuous("Precision (W)") +
-  scale_shape_manual(
-    "Cell Outcome",
-    breaks = c("Success", "Partial", "Fail"),
-    labels = c("Success", "<5% Failures", ">5% Failures"),
-    values = c(4, 13, 1)
-  ) +
-  labs(
-    title = "Bias in W v. M regression parameter across item precision",
-    caption = "Prop. X = 0.3; Cov(X, Z) = Cov(W, Z) = 0",
-  ) +
-  theme_linedraw(base_family = "Open Sans", base_size = 18) -> bias_xw_plot
-
-ggsave(
-  "./output/figure_1_xx.eps",
-  bias_xx_plot,
-  width = 9,
-  height = 9,
-  units = "in",
-  bg = "transparent"
-)
-
-ggsave(
-  "./output/figure_2_xw.eps",
-  bias_xw_plot,
-  width = 9,
-  height = 9,
-  units = "in",
-  bg = "transparent"
-)
+ggplot(base_df, aes(x = Precis_M, y = Precis_W, fill = Bias_XW)) +
+  geom_tile() +
+  bias_palette(expression(paste('Bias ', beta["x|m"]))) +
+  scale_x_continuous("Precision (M)", limits = c(0.55, 1)) +
+  scale_y_continuous("Precision (W)", limits = c(0.55, 1)) +
+  annotate(
+    "label",
+    x = 0.55,
+    y = 0.55,
+    hjust = "left",
+    fill = "#dadde8",
+    label = "Prop. X = 0.3; Cov(X, Z) = Cov(W, Z) = 0"
+  ) -> bias_xw_plot
 
 delta_df <- gridded |>
   filter(Pr_X == 0.3)
 
 ggplot(delta_df, aes(x = Precis_M, y = Precis_W)) +
-  geom_tile(aes(fill = Bias_Z, width = 0.01, height = 0.01)) +
+  geom_tile(aes(fill = Bias_Z)) +
   bias_palette(expression(paste('Bias ', beta["z"]))) +
   scale_x_reverse("Precision (M)") +
   scale_y_continuous("Precision (W)") +
@@ -207,24 +185,10 @@ ggplot(delta_df, aes(x = Precis_M, y = Precis_W)) +
     rows = vars(D_W),
     cols = vars(D_X),
     labeller = labeller(
-      .rows = \(x) paste("Cov(W,Z) = ", x),
-      .cols = \(x) paste("Cov(X,Z) = ", x)
+      .rows = \(x) paste0("Cov(W,Z)=", x),
+      .cols = \(x) paste0("Cov(X,Z)=", x)
     )
-  ) +
-  labs(
-    title = "Bias in Z regression parameter across item precision",
-    caption = "Prop. X = 0.3"
-  ) +
-  theme_linedraw(base_family = "Open Sans", base_size = 18) -> bias_z_plot
-
-ggsave(
-  "./output/figure_3_z.eps",
-  bias_z_plot,
-  width = 9,
-  height = 9,
-  units = "in",
-  bg = "transparent"
-)
+  ) #-> bias_z_plot
 
 ## Summary of bias over time ----
 
@@ -233,34 +197,131 @@ by_recall <- computed |>
   mutate(
     Pr_X,
     "Recall_X" = XX / (XX + XM + XW),
-    "Bias_XX" = OBS_XX - ACT_XX,
+    "SQ_E_XX" = (OBS_XX - ACT_XX)^2,
     .keep = "none"
   ) |>
   collect() |>
   mutate(Pr_X = factor(Pr_X, levels = c(0.1, 0.2, 0.3)))
 
-alt_background <- theme_linedraw(base_family = "Open Sans", base_size = 18)
-alt_background$plot.background <- element_rect(
-  fill = alpha("#97d3e9", 0.25), 
-  colour = alpha("#97d3e9", 0.25)
-)
-alt_background$legend.background <- element_rect(fill = alpha("#97d3e9", 0.25))
-
-ggplot(by_recall, aes(Recall_X, Bias_XX, colour = Pr_X)) +
-  stat_summary_bin(breaks = seq(1, 0, -0.05)) +
-  scale_x_continuous("Recall (X)") +
-  scale_y_continuous(expression(paste('Bias ', beta["x|m"]))) +
-  scale_colour_brewer("Pr(X)", palette = "Set2") +
-  labs(
-    title = "Bias in X v. M regression parameter over response recall",
-    caption = "Cov(X, Z) = Cov(W, Z) = 0"
+ggplot(drop_na(by_recall, SQ_E_XX), aes(Recall_X, SQ_E_XX, colour = Pr_X)) +
+  stat_summary_bin(
+    breaks = seq(1, 0, length.out = 10),
+    geom = "point", 
+    fun = mean
   ) +
-  alt_background -> plot_recall
+  stat_summary_bin(
+    breaks = seq(1, 0, length.out = 10),
+    geom = "line", 
+    fun = mean
+  ) +
+  scale_x_reverse("Recall (X)", breaks = seq(0, 1, 0.1)) +
+  scale_y_continuous(expression(paste('Mean Sq. Error ', beta["x|m"]))) +
+  scale_colour_brewer(
+    NULL,
+    labels = \(x) paste(expression(Pr(X)), "=", x),
+    palette = "Accent"
+  ) +
+  annotate(
+    "label",
+    x = 0.01,
+    y = 0.01,
+    hjust = "right",
+    fill = "#dadde8",
+    label = "Cov(X,Z) = Cov(W,Z) = 0"
+  ) -> plot_recall
+
+## Save images ----
+
+basic_theme <- theme_classic(base_family = "Open Sans", base_size = 18)
+#caption_pos <- theme(plot.caption.position = "panel")
+dark_background <- basic_theme + theme(
+  plot.background = element_rect(fill = "#00053d", colour = NA),
+  panel.background = element_rect(fill = "#00053d", colour = NA),
+  legend.background = element_rect(fill = "#00053d", colour = NA),
+  legend.title = element_text(colour = "#FFFFFF"),
+  legend.text = element_text(colour = "#FFFFFF"),
+  axis.title = element_text(colour = "#FFFFFF"),
+  axis.text = element_text(colour = "#dadde8"),
+  axis.line = element_line(colour = "#dadde8"),
+  panel.grid.major = element_line(colour = "#a5a9b6"),
+  panel.grid.minor = element_line(colour = "#737888"),
+)
+plot_recall + dark_background
 
 ggsave(
-  "./output/figure_4_recall.eps",
-  plot_recall,
-  width = 9,
-  height = 9,
+  "./figure/png/figure_1.png", 
+  plot_recall + dark_background,
+  width = 14.95, 
+  height = 8.8, 
+  units = "in"
+)
+
+ggsave(
+  "./figure/eps/figure_1.eps", 
+  plot_recall + dark_background,
+  width = 14.95, 
+  height = 8.8, 
+  units = "in"
+)
+
+light_background <- basic_theme + theme(
+  plot.background = element_rect(fill = "#97d3e9", colour = NA),
+  panel.background = element_rect(fill = "#EBEBEA", colour = NA),
+  legend.background = element_rect(fill = "#97d3e9", colour = NA),
+  panel.grid.major = element_line(colour = "#FFFFFE"),
+  strip.background = element_rect(
+    fill = "#84C0D6",
+    linewidth = 0
+  ),
+  aspect.ratio = 1
+)
+
+ggsave(
+  "./figure/png/figure_2.png", 
+  bias_xx_plot + light_background,
+  width = 15, 
+  height = 6.4, 
+  units = "in"
+)
+
+ggsave(
+  "./figure/eps/figure_2.eps", 
+  bias_xx_plot + light_background,
+  width = 15, 
+  height = 6.4, 
+  units = "in"
+)
+
+bias_xw_plot + light_background
+
+ggsave(
+  "./figure/png/figure_3.png", 
+  bias_xw_plot + light_background,
+  width = 15, 
+  height = 6.4, 
+  units = "in"
+)
+
+ggsave(
+  "./figure/eps/figure_3.eps", 
+  bias_xw_plot + light_background,
+  width = 15, 
+  height = 6.4, 
+  units = "in"
+)
+
+ggsave(
+  "./figure/png/figure_4.png", 
+  bias_z_plot + light_background,
+  width = 15, 
+  height = 6.4, 
+  units = "in"
+)
+
+ggsave(
+  "./figure/eps/figure_4.eps", 
+  bias_z_plot + light_background,
+  width = 15, 
+  height = 6.4,
   units = "in"
 )

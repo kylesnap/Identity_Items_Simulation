@@ -35,7 +35,7 @@ po/*~
 rsconnect/
 # Output parquet files
 output/**/*.parquet
-
 .DS_Store
 *.Rproj
 *.Rprofvis
+inDesign
